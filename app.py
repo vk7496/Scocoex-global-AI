@@ -35,6 +35,8 @@ RED = "#c85c5c"
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 LOGO_PATH = os.path.join(ASSETS_DIR, "scocoex_logo.png")
+# اگه لوگو کنار app.py (ریشه ریپو) باشه هم پیدا بشه، نه فقط تو پوشه assets/
+LOGO_PATH_ROOT = os.path.join(os.path.dirname(__file__), "scocoex_logo.png")
 LOCAL_CSV_FALLBACK = os.path.join(os.path.dirname(__file__), "registrations_local.csv")
 
 # ============================================================
@@ -149,11 +151,13 @@ hr {{ border-color: rgba(233,228,214,0.12); }}
 # HEADER (با لوگوی رسمی SCOCOEX Global Week)
 # ============================================================
 def _logo_b64():
-    try:
-        with open(LOGO_PATH, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except FileNotFoundError:
-        return None
+    for path in (LOGO_PATH, LOGO_PATH_ROOT):
+        try:
+            with open(path, "rb") as f:
+                return base64.b64encode(f.read()).decode()
+        except FileNotFoundError:
+            continue
+    return None
 
 _logo = _logo_b64()
 _logo_html = f'<img src="data:image/png;base64,{_logo}">' if _logo else "<h1 style='margin:0;'>SCOCOEX</h1>"
