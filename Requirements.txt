@@ -4,4 +4,3 @@ pandas>=2.0
 gspread>=6.1
 google-auth>=2.29
 openai>=1.40
-groq
