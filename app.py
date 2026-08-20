@@ -233,6 +233,62 @@ ANSWERS_EN = {
     "how can i request a booth?": "You can request a booth by filling out the 'Company Registration' form in this app; the exhibition & booth sales team will follow up within 48 hours.",
 }
 
+SYSTEM_PROMPT_FA = (
+    "تو دستیار هوشمند اجلاس بین‌المللی SCOCOEX هستی. به سؤالات شرکت‌کنندگان درباره برنامه، "
+    "شرکت‌های حاضر، جلسات B2B/G2B و ۱۰ محور صنعتی اجلاس (فولاد، معادن، مس و فلزات، نفت و گاز و "
+    "پتروشیمی، پالایش، مهندسی و انرژی، بانک و سرمایه‌گذاری، فناوری‌های نوین، غذایی و کشاورزی، دارو و سلامت) "
+    "کوتاه، دقیق و محترمانه به فارسی پاسخ بده. اگر اطلاعات دقیقی نداری، صادقانه بگو و پیشنهاد بده کاربر با "
+    "دبیرخانه اجلاس تماس بگیرد."
+)
+SYSTEM_PROMPT_EN = (
+    "You are the AI assistant of the SCOCOEX international summit. Answer attendee questions about the "
+    "agenda, attending companies, B2B/G2B sessions, and the summit's 10 industry tracks concisely and "
+    "professionally in English. If you're not sure, say so honestly and suggest contacting the summit secretariat."
+)
+
+
+@st.cache_resource(show_spinner=False)
+def _get_groq_client():
+    """
+    اتصال اختیاری به Groq (LPU inference, سازگار با OpenAI API).
+    برای فعال‌سازی: در Streamlit Cloud → Settings → Secrets اضافه کن:
+
+        GROQ_API_KEY = "gsk_..."
+
+    اگر این کلید تنظیم نشده باشد، چت به‌صورت خودکار روی بانک پاسخ‌های
+    از پیش تعریف‌شده (ANSWERS_FA / ANSWERS_EN) کار می‌کند — بدون خطا.
+    """
+    try:
+        from openai import OpenAI
+        api_key = st.secrets["GROQ_API_KEY"]
+        return OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
+    except Exception:
+        return None
+
+
+def is_groq_connected() -> bool:
+    return _get_groq_client() is not None
+
+
+def ask_groq(question: str, is_fa: bool) -> str | None:
+    """پاسخ واقعی از مدل Groq — در صورت خطا یا نبود کلید، None برمی‌گرداند تا fallback فعال شود."""
+    client = _get_groq_client()
+    if client is None:
+        return None
+    try:
+        resp = client.chat.completions.create(
+            model="openai/gpt-oss-120b",  # مدل فعلی پیشنهادی Groq (جایگزین llama-3.3-70b-versatile منسوخ‌شده)
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT_FA if is_fa else SYSTEM_PROMPT_EN},
+                {"role": "user", "content": question},
+            ],
+            temperature=0.4,
+            max_tokens=400,
+        )
+        return resp.choices[0].message.content
+    except Exception:
+        return None
+
 SECTOR_DEMO_COUNTS = [
     ("فولاد و زنجیره ارزش", 38), ("معادن: سنگ‌آهن، آلومینیوم و صنایع معدنی", 31),
     ("صنعت نفت، گاز و پتروشیمی", 44), ("مهندسی، ساخت، فناوری‌های انرژی و نیروگاه‌ها", 27),
@@ -421,6 +477,11 @@ with tab2:
     lang = st.radio("زبان", ["فارسی", "English"], horizontal=True, label_visibility="collapsed")
     is_fa = lang == "فارسی"
 
+    _groq_ok = is_groq_connected()
+    _groq_html = ('<span class="scx-conn-ok">● متصل به Groq (پاسخ زنده)</span>' if _groq_ok
+                  else '<span class="scx-conn-off">● Groq متصل نیست — پاسخ‌های نمونه نمایش داده می‌شود</span>')
+    st.markdown(f"<p style='font-size:12px;'>{_groq_html}</p>", unsafe_allow_html=True)
+
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = [
             {"role": "assistant", "text_fa": "سلام! من دستیار هوشمند اسکوکواکس هستم. درباره برنامه، شرکت‌ها یا جلسات B2B بپرسید.",
@@ -452,8 +513,14 @@ with tab2:
         q = picked or user_input
         if q:
             st.session_state.chat_history.append({"role": "user", "text_fa": q, "text_en": q})
-            bank = ANSWERS_FA if is_fa else ANSWERS_EN
-            answer = bank.get(q.strip().lower())
+
+            answer = None
+            with st.spinner("در حال فکر کردن…" if is_fa else "Thinking…"):
+                answer = ask_groq(q, is_fa)  # اول تلاش برای پاسخ واقعی از Groq
+
+            if not answer:
+                bank = ANSWERS_FA if is_fa else ANSWERS_EN
+                answer = bank.get(q.strip().lower())
             if not answer:
                 answer = ("این یک نسخه دمو است — در نسخه نهایی، پاسخ از پایگاه‌داده کامل شرکت‌ها و برنامه اجلاس تولید می‌شود."
                            if is_fa else
